@@ -1,0 +1,368 @@
+-- =========================================================================================
+-- ADVANCED DATABASE MANAGEMENT SYSTEMS (ADBMS) ASSIGNMENT
+-- HEALTHCARE INVENTORY MANAGEMENT MODULE (MICROSOFT SQL SERVER)
+-- =========================================================================================
+
+-- Create Database (Optional, depending on execution context)
+-- CREATE DATABASE SafeMotherInventory;
+-- GO
+-- USE SafeMotherInventory;
+-- GO
+
+-- =========================================================================================
+-- TASK 1: RELATIONAL DATABASE DESIGN (3NF)
+-- =========================================================================================
+
+-- 1. Categories Table
+CREATE TABLE Categories (
+    CategoryID INT IDENTITY(1,1) PRIMARY KEY,
+    CategoryName VARCHAR(100) NOT NULL UNIQUE,
+    Description VARCHAR(255)
+);
+GO
+
+-- 2. Medicines Table
+CREATE TABLE Medicines (
+    MedicineID INT IDENTITY(1,1) PRIMARY KEY,
+    CategoryID INT NOT NULL,
+    MedicineName VARCHAR(150) NOT NULL,
+    MinSafetyThreshold INT NOT NULL CONSTRAINT CHK_MinSafetyThreshold CHECK (MinSafetyThreshold >= 0),
+    UnitPrice DECIMAL(10, 2) NOT NULL CONSTRAINT CHK_UnitPrice CHECK (UnitPrice >= 0),
+    CONSTRAINT FK_Medicines_Categories FOREIGN KEY (CategoryID) REFERENCES Categories(CategoryID)
+);
+GO
+
+-- 3. Batches Table
+CREATE TABLE Batches (
+    BatchID INT IDENTITY(1,1) PRIMARY KEY,
+    MedicineID INT NOT NULL,
+    BatchNumber VARCHAR(50) NOT NULL UNIQUE,
+    ManufacturingDate DATE NOT NULL,
+    ExpiryDate DATE NOT NULL,
+    CurrentStock INT NOT NULL CONSTRAINT CHK_CurrentStock CHECK (CurrentStock >= 0),
+    CONSTRAINT FK_Batches_Medicines FOREIGN KEY (MedicineID) REFERENCES Medicines(MedicineID),
+    CONSTRAINT CHK_Dates CHECK (ExpiryDate > ManufacturingDate)
+);
+GO
+
+-- 4. DispenseLogs Table
+CREATE TABLE DispenseLogs (
+    LogID INT IDENTITY(1,1) PRIMARY KEY,
+    BatchID INT NOT NULL,
+    PatientOrWardID VARCHAR(100) NOT NULL,
+    QuantityDispensed INT NOT NULL CONSTRAINT CHK_QuantityDispensed CHECK (QuantityDispensed > 0),
+    DispenseDate DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_DispenseLogs_Batches FOREIGN KEY (BatchID) REFERENCES Batches(BatchID)
+);
+GO
+
+-- =========================================================================================
+-- INSERT 10 MEANINGFUL SAMPLE RECORDS
+-- =========================================================================================
+
+INSERT INTO Categories (CategoryName, Description) VALUES
+('Antibiotics', 'Used to treat bacterial infections'),
+('Analgesics', 'Painkillers to relieve pain'),
+('Antipyretics', 'Drugs used to reduce fever'),
+('Vitamins', 'Dietary supplements'),
+('Antiseptics', 'Substances that prevent the growth of disease-causing microorganisms');
+
+INSERT INTO Medicines (CategoryID, MedicineName, MinSafetyThreshold, UnitPrice) VALUES
+(1, 'Amoxicillin 500mg', 500, 15.50),
+(1, 'Ciprofloxacin 250mg', 300, 25.00),
+(2, 'Paracetamol 500mg', 1000, 5.00),
+(2, 'Ibuprofen 400mg', 800, 8.50),
+(3, 'Aspirin 75mg', 400, 4.25),
+(4, 'Vitamin C 1000mg', 600, 12.00),
+(4, 'Folic Acid 5mg', 300, 6.75),
+(5, 'Chlorhexidine Solution', 100, 45.00),
+(1, 'Azithromycin 250mg', 200, 30.00),
+(2, 'Diclofenac 50mg', 500, 10.00);
+
+INSERT INTO Batches (MedicineID, BatchNumber, ManufacturingDate, ExpiryDate, CurrentStock) VALUES
+(1, 'AMX-2023-01', '2023-01-10', '2025-01-10', 1000),
+(2, 'CIP-2023-02', '2023-02-15', '2025-02-15', 600),
+(3, 'PAR-2023-03', '2023-03-20', '2026-03-20', 2000),
+(4, 'IBU-2023-04', '2023-04-05', '2026-04-05', 1500),
+(5, 'ASP-2023-05', '2023-05-12', '2025-05-12', 800),
+(6, 'VIT-2023-06', '2023-06-18', '2024-06-18', 1200),
+(7, 'FOL-2023-07', '2023-07-22', '2025-07-22', 500),
+(8, 'CHL-2023-08', '2023-08-30', '2025-08-30', 250),
+(9, 'AZI-2023-09', '2023-09-10', '2025-09-10', 400),
+(10, 'DIC-2023-10', '2023-10-01', '2024-10-01', 900);
+
+INSERT INTO DispenseLogs (BatchID, PatientOrWardID, QuantityDispensed, DispenseDate) VALUES
+(1, 'Ward-A', 50, DATEADD(day, -25, GETDATE())),
+(1, 'Patient-102', 10, DATEADD(day, -20, GETDATE())),
+(3, 'Ward-B', 100, DATEADD(day, -15, GETDATE())),
+(4, 'Patient-205', 20, DATEADD(day, -10, GETDATE())),
+(6, 'Ward-C', 30, DATEADD(day, -5, GETDATE())),
+(2, 'Ward-A', 40, DATEADD(day, -2, GETDATE())),
+(8, 'ICU', 5, DATEADD(day, -1, GETDATE())),
+(10, 'Ward-D', 25, GETDATE()),
+(5, 'Patient-308', 15, DATEADD(day, -12, GETDATE())),
+(7, 'Ward-Maternity', 50, DATEADD(day, -8, GETDATE()));
+GO
+
+-- =========================================================================================
+-- TASK 2: ADVANCED SQL OBJECTS
+-- =========================================================================================
+
+-- -----------------------------------------------------------------------------------------
+-- TRIGGERS
+-- -----------------------------------------------------------------------------------------
+
+-- Trigger 1: trg_UpdateBatchStock
+CREATE TRIGGER trg_UpdateBatchStock
+ON DispenseLogs
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE B
+    SET B.CurrentStock = B.CurrentStock - I.QuantityDispensed
+    FROM Batches B
+    INNER JOIN inserted I ON B.BatchID = I.BatchID;
+END;
+GO
+
+-- Trigger 2: trg_PreventExpiredDispense
+CREATE TRIGGER trg_PreventExpiredDispense
+ON DispenseLogs
+INSTEAD OF INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted I
+        INNER JOIN Batches B ON I.BatchID = B.BatchID
+        WHERE B.ExpiryDate < GETDATE()
+    )
+    BEGIN
+        RAISERROR ('Cannot dispense medication from an expired batch.', 16, 1);
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+
+    -- If stock is not enough
+    IF EXISTS (
+        SELECT 1
+        FROM inserted I
+        INNER JOIN Batches B ON I.BatchID = B.BatchID
+        WHERE B.CurrentStock < I.QuantityDispensed
+    )
+    BEGIN
+        RAISERROR ('Insufficient stock in the selected batch.', 16, 1);
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+
+    -- If valid, proceed with insertion
+    INSERT INTO DispenseLogs (BatchID, PatientOrWardID, QuantityDispensed, DispenseDate)
+    SELECT BatchID, PatientOrWardID, QuantityDispensed, ISNULL(DispenseDate, GETDATE())
+    FROM inserted;
+END;
+GO
+
+-- -----------------------------------------------------------------------------------------
+-- USER-DEFINED FUNCTIONS (UDFs)
+-- -----------------------------------------------------------------------------------------
+
+-- UDF 1: fn_CalculateCategoryValue
+CREATE FUNCTION fn_CalculateCategoryValue (@CategoryID INT)
+RETURNS DECIMAL(18, 2)
+AS
+BEGIN
+    DECLARE @TotalValue DECIMAL(18, 2);
+
+    SELECT @TotalValue = SUM(B.CurrentStock * M.UnitPrice)
+    FROM Batches B
+    INNER JOIN Medicines M ON B.MedicineID = M.MedicineID
+    WHERE M.CategoryID = @CategoryID AND B.CurrentStock > 0 AND B.ExpiryDate >= GETDATE();
+
+    RETURN ISNULL(@TotalValue, 0);
+END;
+GO
+
+-- UDF 2: fn_GetAverageDailyConsumption
+CREATE FUNCTION fn_GetAverageDailyConsumption (@MedicineID INT)
+RETURNS DECIMAL(10, 2)
+AS
+BEGIN
+    DECLARE @AvgConsumption DECIMAL(10, 2);
+
+    SELECT @AvgConsumption = CAST(ISNULL(SUM(DL.QuantityDispensed), 0) AS DECIMAL(10,2)) / 30.0
+    FROM DispenseLogs DL
+    INNER JOIN Batches B ON DL.BatchID = B.BatchID
+    WHERE B.MedicineID = @MedicineID
+      AND DL.DispenseDate >= DATEADD(day, -30, GETDATE());
+
+    RETURN ISNULL(@AvgConsumption, 0);
+END;
+GO
+
+-- -----------------------------------------------------------------------------------------
+-- VIEWS
+-- -----------------------------------------------------------------------------------------
+
+-- View 1: vw_CriticalStock
+CREATE VIEW vw_CriticalStock
+AS
+SELECT 
+    M.MedicineID,
+    M.MedicineName,
+    C.CategoryName,
+    M.MinSafetyThreshold,
+    ISNULL(SUM(B.CurrentStock), 0) AS TotalActiveStock
+FROM Medicines M
+INNER JOIN Categories C ON M.CategoryID = C.CategoryID
+LEFT JOIN Batches B ON M.MedicineID = B.MedicineID AND B.ExpiryDate >= GETDATE()
+GROUP BY M.MedicineID, M.MedicineName, C.CategoryName, M.MinSafetyThreshold
+HAVING ISNULL(SUM(B.CurrentStock), 0) < M.MinSafetyThreshold;
+GO
+
+-- View 2: vw_ExpiringSoon
+CREATE VIEW vw_ExpiringSoon
+AS
+SELECT 
+    B.BatchID,
+    B.BatchNumber,
+    M.MedicineName,
+    B.CurrentStock,
+    B.ExpiryDate,
+    DATEDIFF(day, GETDATE(), B.ExpiryDate) AS DaysToExpiry
+FROM Batches B
+INNER JOIN Medicines M ON B.MedicineID = M.MedicineID
+WHERE B.CurrentStock > 0 
+  AND B.ExpiryDate >= GETDATE() 
+  AND B.ExpiryDate <= DATEADD(day, 90, GETDATE());
+GO
+
+-- -----------------------------------------------------------------------------------------
+-- STORED PROCEDURES
+-- -----------------------------------------------------------------------------------------
+
+-- SP 1: sp_ProcessIncomingShipment
+CREATE PROCEDURE sp_ProcessIncomingShipment
+    @MedicineID INT,
+    @BatchNumber VARCHAR(50),
+    @ManufacturingDate DATE,
+    @ExpiryDate DATE,
+    @Quantity INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        IF @Quantity <= 0
+        BEGIN
+            RAISERROR ('Quantity must be greater than zero.', 16, 1);
+        END
+
+        INSERT INTO Batches (MedicineID, BatchNumber, ManufacturingDate, ExpiryDate, CurrentStock)
+        VALUES (@MedicineID, @BatchNumber, @ManufacturingDate, @ExpiryDate, @Quantity);
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END;
+GO
+
+-- SP 2: sp_GenerateMonthlyAudit
+CREATE PROCEDURE sp_GenerateMonthlyAudit
+    @Year INT,
+    @Month INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @StartDate DATETIME = DATEFROMPARTS(@Year, @Month, 1);
+    DECLARE @EndDate DATETIME = EOMONTH(@StartDate);
+
+    SELECT 
+        M.MedicineName,
+        C.CategoryName,
+        -- Approximate calculation for simplicity in audit (Current Stock + Dispensed in month)
+        SUM(B.CurrentStock) + ISNULL(Dispensed.TotalDispensed, 0) AS StartingStockApprox,
+        ISNULL(Dispensed.TotalDispensed, 0) AS TotalDispensed,
+        SUM(B.CurrentStock) AS EndingStock
+    FROM Medicines M
+    INNER JOIN Categories C ON M.CategoryID = C.CategoryID
+    INNER JOIN Batches B ON M.MedicineID = B.MedicineID
+    LEFT JOIN (
+        SELECT B.MedicineID, SUM(DL.QuantityDispensed) AS TotalDispensed
+        FROM DispenseLogs DL
+        INNER JOIN Batches B ON DL.BatchID = B.BatchID
+        WHERE DL.DispenseDate >= @StartDate AND DL.DispenseDate <= @EndDate
+        GROUP BY B.MedicineID
+    ) Dispensed ON M.MedicineID = Dispensed.MedicineID
+    GROUP BY M.MedicineName, C.CategoryName, Dispensed.TotalDispensed;
+END;
+GO
+
+-- =========================================================================================
+-- TASK 3: BUSINESS INTELLIGENCE / DATA MINING OPERATION
+-- =========================================================================================
+
+-- BI SP: sp_DemandForecastingAndReorder
+-- Uses Moving Averages based on the last 3 months of DispenseLogs to forecast next month's demand.
+-- Merges this with CriticalStock view to output a Recommended Order List.
+CREATE PROCEDURE sp_DemandForecastingAndReorder
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @LastMonthStart DATETIME = DATEADD(month, -1, GETDATE());
+    DECLARE @TwoMonthsAgoStart DATETIME = DATEADD(month, -2, GETDATE());
+    DECLARE @ThreeMonthsAgoStart DATETIME = DATEADD(month, -3, GETDATE());
+
+    WITH MonthlyDispense AS (
+        SELECT 
+            B.MedicineID,
+            SUM(CASE WHEN DL.DispenseDate >= @LastMonthStart THEN DL.QuantityDispensed ELSE 0 END) AS Month1,
+            SUM(CASE WHEN DL.DispenseDate >= @TwoMonthsAgoStart AND DL.DispenseDate < @LastMonthStart THEN DL.QuantityDispensed ELSE 0 END) AS Month2,
+            SUM(CASE WHEN DL.DispenseDate >= @ThreeMonthsAgoStart AND DL.DispenseDate < @TwoMonthsAgoStart THEN DL.QuantityDispensed ELSE 0 END) AS Month3
+        FROM DispenseLogs DL
+        INNER JOIN Batches B ON DL.BatchID = B.BatchID
+        WHERE DL.DispenseDate >= @ThreeMonthsAgoStart
+        GROUP BY B.MedicineID
+    ),
+    Forecast AS (
+        SELECT 
+            MedicineID,
+            (Month1 + Month2 + Month3) / 3 AS ForecastedDemand
+        FROM MonthlyDispense
+    )
+    SELECT 
+        M.MedicineID,
+        M.MedicineName,
+        ISNULL(CS.TotalActiveStock, 
+               (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE())
+        ) AS CurrentStock,
+        M.MinSafetyThreshold,
+        ISNULL(F.ForecastedDemand, 0) AS ForecastedDemand,
+        CASE 
+            WHEN CS.MedicineID IS NOT NULL OR (ISNULL(F.ForecastedDemand, 0) > ISNULL(CS.TotalActiveStock, 0)) THEN 
+                -- If it's critical or forecasted demand is higher than stock, recommend order
+                -- Order amount = (Safety Threshold + Forecasted Demand) - Current Stock
+                ((M.MinSafetyThreshold + ISNULL(F.ForecastedDemand, 0)) - 
+                ISNULL(CS.TotalActiveStock, (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE())))
+            ELSE 0
+        END AS RecommendedOrderQuantity
+    FROM Medicines M
+    LEFT JOIN Forecast F ON M.MedicineID = F.MedicineID
+    LEFT JOIN vw_CriticalStock CS ON M.MedicineID = CS.MedicineID
+    WHERE 
+        CS.MedicineID IS NOT NULL 
+        OR 
+        ISNULL(F.ForecastedDemand, 0) > ISNULL(CS.TotalActiveStock, (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE()));
+END;
+GO

@@ -1,0 +1,95 @@
+================================================================================
+ADBMS ASSIGNMENT - HEALTHCARE INVENTORY MANAGEMENT SETUP GUIDE
+================================================================================
+
+This document outlines the files created for the Advanced Database Management Systems 
+(ADBMS) university assignment, instructions on setting up the Microsoft SQL Server 
+database, and how to run the full stack application.
+
+--------------------------------------------------------------------------------
+1. CHANGES & UPDATES MADE
+--------------------------------------------------------------------------------
+
+DATABASE:
+* Created `database_scripts/inventory_schema.sql`: 
+  Contains the complete T-SQL script to generate the 3NF relational database schema 
+  (Categories, Medicines, Batches, DispenseLogs), constraints, sample data inserts, 
+  and all advanced SQL objects:
+  - Triggers: `trg_UpdateBatchStock`, `trg_PreventExpiredDispense`
+  - User-Defined Functions (UDFs): `fn_CalculateCategoryValue`, `fn_GetAverageDailyConsumption`
+  - Views: `vw_CriticalStock`, `vw_ExpiringSoon`
+  - Stored Procedures: `sp_ProcessIncomingShipment`, `sp_GenerateMonthlyAudit`
+  - Business Intelligence / Data Mining: `sp_DemandForecastingAndReorder` (Moving Averages logic).
+
+BACKEND (Node.js/Express):
+* Installed `mssql` package in the `server` directory.
+* Created `server/.env`: Includes default environment variables and MSSQL configurations.
+* Created `server/src/config/sqlDatabase.js`: Sets up the Microsoft SQL Server connection pool.
+* Created `server/src/controllers/inventoryController.js`: Executes the BI demand forecasting stored procedure.
+* Created `server/src/routes/inventoryRoutes.js`: Exposes the `GET /api/inventory/smart-reorder` endpoint.
+* Updated `server/src/index.js`: Mounted the MSSQL database connection on startup and integrated the new inventory routes alongside your existing MongoDB routes.
+
+FRONTEND (React):
+* Created `client/src/components/SmartReorderDashboard.jsx`: A modern data dashboard built with Tailwind CSS and lucide-react icons. It fetches the BI predictions from the backend and visually flags critical stock items and recommended order quantities.
+
+
+--------------------------------------------------------------------------------
+2. HOW TO ADD THE DATABASE (Microsoft SQL Server)
+--------------------------------------------------------------------------------
+
+1. Open Microsoft SQL Server Management Studio (SSMS) or Azure Data Studio.
+2. Connect to your local SQL Server instance (e.g., `localhost` or `.\SQLEXPRESS`).
+3. Open a "New Query" window and run the following commands to create the database:
+
+   CREATE DATABASE SafeMotherInventory;
+   GO
+   USE SafeMotherInventory;
+   GO
+
+4. Open the file `database_scripts/inventory_schema.sql` (located in your project root).
+5. Copy all of its contents, paste it into your SSMS query window, and click "Execute". 
+   (This runs all tables, inserts, triggers, views, and procedures).
+6. Verify your SQL Server credentials. Open the `server/.env` file and ensure the following variables match your SQL Server setup:
+
+   DB_SERVER=localhost
+   DB_USER=sa
+   DB_PASSWORD=YourStrongPassword123!
+   DB_NAME=SafeMotherInventory
+
+   Note: Make sure your SQL Server is configured to accept "SQL Server and Windows Authentication mode", and TCP/IP connections are enabled in SQL Server Configuration Manager.
+
+
+--------------------------------------------------------------------------------
+3. HOW TO RUN THE PROJECT
+--------------------------------------------------------------------------------
+
+Start the Backend (Server):
+1. Open a terminal.
+2. Navigate to the server folder:
+   cd server
+3. Install dependencies (if not already done):
+   npm install
+4. Start the server:
+   npm run dev
+5. You should see terminal logs confirming:
+   "Server is running on port 3000"
+   "MongoDB connected successfully"
+   "MSSQL connected successfully"
+
+Start the Frontend (Client):
+1. Open a new, separate terminal.
+2. Navigate to the client folder:
+   cd client
+3. Install dependencies:
+   npm install
+4. Start the React development server:
+   npm run dev
+5. Open your browser and go to: http://localhost:5173
+
+Displaying the Dashboard:
+To see the new SmartReorderDashboard in your app, import and add it to your routing setup (usually in `client/src/App.jsx` or a similar router file). For example:
+
+  import SmartReorderDashboard from './components/SmartReorderDashboard';
+
+  // Inside your Routes:
+  <Route path="/inventory-dashboard" element={<SmartReorderDashboard />} />
