@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { connectDB } from "./config/database.js";
-import { connectMSSQL } from "./config/sqlDatabase.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import pregnancyRoutes from "./routes/pregnancyRoutes.js";
@@ -24,8 +23,8 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json());
 
-connectDB();
-connectMSSQL().catch(err => console.error("Failed to connect to MSSQL on startup", err));
+// Connect to Microsoft SQL Server
+await connectDB();
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -48,24 +47,6 @@ app.get("/", (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Error:", err.message);
-
-  // Mongoose validation error
-  if (err.name === "ValidationError") {
-    return res.status(400).json({
-      success: false,
-      message: "Validation error",
-      errors: Object.values(err.errors).map((e) => e.message),
-    });
-  }
-
-  // Mongoose duplicate key error
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyValue)[0];
-    return res.status(400).json({
-      success: false,
-      message: `${field} already exists`,
-    });
-  }
 
   // Default error response
   res.status(err.statusCode || 500).json({

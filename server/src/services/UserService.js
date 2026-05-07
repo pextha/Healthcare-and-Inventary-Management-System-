@@ -298,7 +298,7 @@ export class UserService {
 
   // Remove password from user object
   sanitizeUser(user) {
-    const userObj = user.toObject ? user.toObject() : user;
+    const userObj = typeof user.toObject === 'function' ? user.toObject() : { ...user };
     delete userObj.password;
     return userObj;
   }

@@ -1,62 +1,75 @@
 ================================================================================
-ADBMS ASSIGNMENT - HEALTHCARE INVENTORY MANAGEMENT SETUP GUIDE
+SAFEMOTHER - FULL SQL SERVER MIGRATION & ADBMS ASSIGNMENT GUIDE
 ================================================================================
 
-This document outlines the files created for the Advanced Database Management Systems 
-(ADBMS) university assignment, instructions on setting up the Microsoft SQL Server 
-database, and how to run the full stack application.
+This document outlines the complete migration from MongoDB to Microsoft SQL Server
+and includes the ADBMS assignment setup for the Inventory Management Module.
 
 --------------------------------------------------------------------------------
 1. CHANGES & UPDATES MADE
 --------------------------------------------------------------------------------
 
-DATABASE:
-* Created `database_scripts/inventory_schema.sql`: 
-  Contains the complete T-SQL script to generate the 3NF relational database schema 
-  (Categories, Medicines, Batches, DispenseLogs), constraints, sample data inserts, 
-  and all advanced SQL objects:
+FULL DATABASE MIGRATION (MongoDB → Microsoft SQL Server):
+* REMOVED MongoDB/Mongoose entirely from the project.
+* Created a SINGLE schema file: `database_scripts/safemother_full_schema.sql`
+  This ONE file contains EVERYTHING:
+  - Core Application Tables: Users, Pregnancies, Chats, ChatParticipants, Messages, Appointments
+  - Inventory Module Tables: Categories, Medicines, Batches, DispenseLogs
+  - All Indexes and Constraints
+  - Inventory Sample Data (10 records per table)
   - Triggers: `trg_UpdateBatchStock`, `trg_PreventExpiredDispense`
-  - User-Defined Functions (UDFs): `fn_CalculateCategoryValue`, `fn_GetAverageDailyConsumption`
+  - User-Defined Functions: `fn_CalculateCategoryValue`, `fn_GetAverageDailyConsumption`
   - Views: `vw_CriticalStock`, `vw_ExpiringSoon`
   - Stored Procedures: `sp_ProcessIncomingShipment`, `sp_GenerateMonthlyAudit`
-  - Business Intelligence / Data Mining: `sp_DemandForecastingAndReorder` (Moving Averages logic).
+  - Business Intelligence / Data Mining: `sp_DemandForecastingAndReorder` (Moving Averages)
 
-BACKEND (Node.js/Express):
-* Installed `mssql` package in the `server` directory.
-* Created `server/.env`: Includes default environment variables and MSSQL configurations.
-* Created `server/src/config/sqlDatabase.js`: Sets up the Microsoft SQL Server connection pool.
-* Created `server/src/controllers/inventoryController.js`: Executes the BI demand forecasting stored procedure.
-* Created `server/src/routes/inventoryRoutes.js`: Exposes the `GET /api/inventory/smart-reorder` endpoint.
-* Updated `server/src/index.js`: Mounted the MSSQL database connection on startup and integrated the new inventory routes alongside your existing MongoDB routes.
+BACKEND (Node.js/Express) — Rewrote Data Layer:
+* Replaced `server/src/config/database.js`: Now connects to MSSQL instead of MongoDB.
+* Removed `server/src/config/sqlDatabase.js` (merged into database.js).
+* Removed ALL Mongoose model files from `server/src/models/`.
+* Rewrote ALL 5 repositories to use the `mssql` package:
+  - `UserRepository.js` — Password hashing done inline (bcrypt).
+  - `PregnancyRepository.js` — Array fields stored as JSON strings.
+  - `ChatRepository.js` — Uses ChatParticipants junction table.
+  - `MessageRepository.js` — JOINs replace Mongoose populate().
+  - `AppointmentRepository.js` — Full JOIN-based population.
+* Updated ALL services to remove Mongoose-specific calls (.toObject(), .toString() on ObjectIds).
+* Rewrote `AnalyticsService.js` from aggregation pipelines to raw SQL queries.
+* Updated `server/src/index.js`: Removed MongoDB connection, uses single MSSQL connection.
+* Updated `server/.env`: Removed MONGODB_URI, kept MSSQL config variables.
 
 FRONTEND (React):
-* Created `client/src/components/SmartReorderDashboard.jsx`: A modern data dashboard built with Tailwind CSS and lucide-react icons. It fetches the BI predictions from the backend and visually flags critical stock items and recommended order quantities.
+* Created `client/src/components/SmartReorderDashboard.jsx`
+* Added route `/admin/inventory` in AppRoutes.jsx
 
 
 --------------------------------------------------------------------------------
-2. HOW TO ADD THE DATABASE (Microsoft SQL Server)
+2. HOW TO SET UP THE DATABASE (Microsoft SQL Server)
 --------------------------------------------------------------------------------
 
-1. Open Microsoft SQL Server Management Studio (SSMS) or Azure Data Studio.
+1. Open SQL Server Management Studio (SSMS) or Azure Data Studio.
 2. Connect to your local SQL Server instance (e.g., `localhost` or `.\SQLEXPRESS`).
-3. Open a "New Query" window and run the following commands to create the database:
+3. Create the database by running:
 
    CREATE DATABASE SafeMotherInventory;
    GO
    USE SafeMotherInventory;
    GO
 
-4. Open the file `database_scripts/inventory_schema.sql` (located in your project root).
-5. Copy all of its contents, paste it into your SSMS query window, and click "Execute". 
-   (This runs all tables, inserts, triggers, views, and procedures).
-6. Verify your SQL Server credentials. Open the `server/.env` file and ensure the following variables match your SQL Server setup:
+4. Open the SINGLE schema file: `database_scripts/safemother_full_schema.sql`
+5. Copy ALL of its contents, paste into your SSMS query window, and click "Execute".
+   This creates ALL tables (core + inventory), indexes, sample data, triggers,
+   views, UDFs, and stored procedures in one go.
+
+6. Update `server/.env` with your SQL Server credentials:
 
    DB_SERVER=localhost
    DB_USER=sa
-   DB_PASSWORD=YourStrongPassword123!
+   DB_PASSWORD=YourActualPassword
    DB_NAME=SafeMotherInventory
 
-   Note: Make sure your SQL Server is configured to accept "SQL Server and Windows Authentication mode", and TCP/IP connections are enabled in SQL Server Configuration Manager.
+   Note: Ensure SQL Server is configured for "SQL Server and Windows Authentication mode"
+   and TCP/IP connections are enabled in SQL Server Configuration Manager.
 
 
 --------------------------------------------------------------------------------
@@ -64,32 +77,24 @@ FRONTEND (React):
 --------------------------------------------------------------------------------
 
 Start the Backend (Server):
-1. Open a terminal.
-2. Navigate to the server folder:
+1. Open a terminal and navigate to the server folder:
    cd server
-3. Install dependencies (if not already done):
+2. Install dependencies:
    npm install
-4. Start the server:
+3. Start the server:
    npm run dev
-5. You should see terminal logs confirming:
-   "Server is running on port 3000"
-   "MongoDB connected successfully"
+4. You should see:
    "MSSQL connected successfully"
+   "Server is running on port 3000"
 
 Start the Frontend (Client):
-1. Open a new, separate terminal.
-2. Navigate to the client folder:
+1. Open a NEW terminal and navigate to the client folder:
    cd client
-3. Install dependencies:
+2. Install dependencies:
    npm install
-4. Start the React development server:
+3. Start the development server:
    npm run dev
-5. Open your browser and go to: http://localhost:5173
+4. Open your browser: http://localhost:5173
 
-Displaying the Dashboard:
-To see the new SmartReorderDashboard in your app, import and add it to your routing setup (usually in `client/src/App.jsx` or a similar router file). For example:
-
-  import SmartReorderDashboard from './components/SmartReorderDashboard';
-
-  // Inside your Routes:
-  <Route path="/inventory-dashboard" element={<SmartReorderDashboard />} />
+Smart Reorder Dashboard: http://localhost:5173/admin/inventory
+(Requires ADMIN login)

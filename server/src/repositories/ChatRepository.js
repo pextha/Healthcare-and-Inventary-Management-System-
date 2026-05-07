@@ -1,78 +1,154 @@
-import { Chat } from "../models/Chat.js";
+import { getPool, sql } from "../config/database.js";
 
 export class ChatRepository {
+  // Helper to format a chat row with participants array
+  async _populateChat(chatId) {
+    const pool = getPool();
+    const chatResult = await pool.request()
+      .input("chatId", sql.Int, chatId)
+      .query(`
+        SELECT ChatID AS _id, PregnancyID AS pregnancyId, IsReadOnly AS isReadOnly,
+               LastMessage AS lastMessage, LastMessageAt AS lastMessageAt,
+               CreatedAt AS createdAt, UpdatedAt AS updatedAt
+        FROM Chats WHERE ChatID = @chatId
+      `);
+    const chat = chatResult.recordset[0];
+    if (!chat) return null;
+
+    const participantsResult = await pool.request()
+      .input("chatId", sql.Int, chatId)
+      .query(`
+        SELECT u.UserID AS _id, u.FullName AS fullName, u.Email AS email,
+               u.Role AS role, u.IsActive AS isActive
+        FROM ChatParticipants cp
+        INNER JOIN Users u ON cp.UserID = u.UserID
+        WHERE cp.ChatID = @chatId
+      `);
+    chat.participants = participantsResult.recordset;
+    return chat;
+  }
+
   // Create a new chat (legacy — no pregnancy link)
   async create(participantIds) {
-    const chat = new Chat({ participants: participantIds });
-    return await chat.save();
+    const pool = getPool();
+    const result = await pool.request()
+      .query(`
+        INSERT INTO Chats (PregnancyID) OUTPUT INSERTED.ChatID AS _id VALUES (NULL)
+      `);
+    const chatId = result.recordset[0]._id;
+
+    for (const userId of participantIds) {
+      await pool.request()
+        .input("chatId", sql.Int, chatId)
+        .input("userId", sql.Int, userId)
+        .query(`INSERT INTO ChatParticipants (ChatID, UserID) VALUES (@chatId, @userId)`);
+    }
+    return await this._populateChat(chatId);
   }
 
-  // Find an existing active (non-frozen) pregnancy-linked chat between two users (order-independent).
-  // Deliberately excludes read-only chats so that re-assigning a previously-removed
-  // doctor/midwife creates a fresh chat rather than reactivating the frozen history.
+  // Find existing active pregnancy-linked chat between two users
   async findByPregnancyAndUsers(pregnancyId, userIdA, userIdB) {
-    return await Chat.findOne({
-      pregnancyId,
-      participants: { $all: [userIdA, userIdB], $size: 2 },
-      isReadOnly: false,
-    })
-      .populate("participants", "fullName email role isActive")
-      .lean();
+    const pool = getPool();
+    const result = await pool.request()
+      .input("pregnancyId", sql.Int, pregnancyId)
+      .input("userIdA", sql.Int, userIdA)
+      .input("userIdB", sql.Int, userIdB)
+      .query(`
+        SELECT c.ChatID
+        FROM Chats c
+        INNER JOIN ChatParticipants cpA ON c.ChatID = cpA.ChatID AND cpA.UserID = @userIdA
+        INNER JOIN ChatParticipants cpB ON c.ChatID = cpB.ChatID AND cpB.UserID = @userIdB
+        WHERE c.PregnancyID = @pregnancyId AND c.IsReadOnly = 0
+          AND (SELECT COUNT(*) FROM ChatParticipants WHERE ChatID = c.ChatID) = 2
+      `);
+    if (result.recordset.length === 0) return null;
+    return await this._populateChat(result.recordset[0].ChatID);
   }
 
-  // Create a new chat linked to a pregnancy.
-  // lastMessageAt is seeded to now so the chat appears at the top of the
-  // conversation list immediately (sort is lastMessageAt: -1; nulls go last).
+  // Create a new chat linked to a pregnancy
   async createWithPregnancy(pregnancyId, participantIds) {
-    const chat = new Chat({
-      pregnancyId,
-      participants: participantIds,
-      lastMessageAt: new Date(),
-    });
-    return await chat.save();
+    const pool = getPool();
+    const result = await pool.request()
+      .input("pregnancyId", sql.Int, pregnancyId)
+      .query(`
+        INSERT INTO Chats (PregnancyID, LastMessageAt)
+        OUTPUT INSERTED.ChatID AS _id
+        VALUES (@pregnancyId, GETDATE())
+      `);
+    const chatId = result.recordset[0]._id;
+
+    for (const userId of participantIds) {
+      await pool.request()
+        .input("chatId", sql.Int, chatId)
+        .input("userId", sql.Int, userId)
+        .query(`INSERT INTO ChatParticipants (ChatID, UserID) VALUES (@chatId, @userId)`);
+    }
+    return await this._populateChat(chatId);
   }
 
   // Set isReadOnly = true on every chat belonging to a pregnancy
   async setReadOnlyByPregnancy(pregnancyId) {
-    return await Chat.updateMany(
-      { pregnancyId },
-      { isReadOnly: true },
-    );
+    const pool = getPool();
+    await pool.request()
+      .input("pregnancyId", sql.Int, pregnancyId)
+      .query(`UPDATE Chats SET IsReadOnly = 1, UpdatedAt = GETDATE() WHERE PregnancyID = @pregnancyId`);
   }
 
-  // Set isReadOnly = true only on the chat between two specific users in a pregnancy
-  // Used when a doctor/midwife is swapped — only the old person's chat is frozen
+  // Set isReadOnly = true only on chat between two specific users in a pregnancy
   async setReadOnlyByPregnancyAndUsers(pregnancyId, userIdA, userIdB) {
-    return await Chat.updateMany(
-      {
-        pregnancyId,
-        participants: { $all: [userIdA, userIdB], $size: 2 },
-      },
-      { isReadOnly: true },
-    );
+    const pool = getPool();
+    await pool.request()
+      .input("pregnancyId", sql.Int, pregnancyId)
+      .input("userIdA", sql.Int, userIdA)
+      .input("userIdB", sql.Int, userIdB)
+      .query(`
+        UPDATE Chats SET IsReadOnly = 1, UpdatedAt = GETDATE()
+        WHERE PregnancyID = @pregnancyId AND ChatID IN (
+          SELECT c.ChatID FROM Chats c
+          INNER JOIN ChatParticipants cpA ON c.ChatID = cpA.ChatID AND cpA.UserID = @userIdA
+          INNER JOIN ChatParticipants cpB ON c.ChatID = cpB.ChatID AND cpB.UserID = @userIdB
+          WHERE c.PregnancyID = @pregnancyId
+            AND (SELECT COUNT(*) FROM ChatParticipants WHERE ChatID = c.ChatID) = 2
+        )
+      `);
   }
 
   // Find all chats a user is part of
   async findByUserId(userId) {
-    return await Chat.find({ participants: userId })
-      .populate("participants", "fullName email role isActive")
-      .sort({ lastMessageAt: -1 })
-      .lean();
+    const pool = getPool();
+    const result = await pool.request()
+      .input("userId", sql.Int, userId)
+      .query(`
+        SELECT DISTINCT c.ChatID
+        FROM Chats c
+        INNER JOIN ChatParticipants cp ON c.ChatID = cp.ChatID
+        WHERE cp.UserID = @userId
+        ORDER BY c.ChatID DESC
+      `);
+
+    const chats = [];
+    for (const row of result.recordset) {
+      const chat = await this._populateChat(row.ChatID);
+      if (chat) chats.push(chat);
+    }
+    // Sort by lastMessageAt descending
+    chats.sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
+    return chats;
   }
 
   // Find a chat by its ID
   async findById(chatId) {
-    return await Chat.findById(chatId)
-      .populate("participants", "fullName email role isActive")
-      .lean();
+    return await this._populateChat(chatId);
   }
 
   // Update lastMessage and lastMessageAt
   async updateLastMessage(chatId, text, date = new Date()) {
-    return await Chat.findByIdAndUpdate(
-      chatId,
-      { lastMessage: text, lastMessageAt: date },
-      { returnDocument: "after" },
-    ).lean();
+    const pool = getPool();
+    await pool.request()
+      .input("chatId", sql.Int, chatId)
+      .input("text", sql.NVarChar(sql.MAX), text)
+      .input("date", sql.DateTime, date)
+      .query(`UPDATE Chats SET LastMessage = @text, LastMessageAt = @date, UpdatedAt = GETDATE() WHERE ChatID = @chatId`);
+    return await this._populateChat(chatId);
   }
 }

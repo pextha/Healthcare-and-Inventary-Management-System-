@@ -1,16 +1,154 @@
 -- =========================================================================================
--- ADVANCED DATABASE MANAGEMENT SYSTEMS (ADBMS) ASSIGNMENT
--- HEALTHCARE INVENTORY MANAGEMENT MODULE (MICROSOFT SQL SERVER)
+-- SAFEMOTHER FULL DATABASE SCHEMA (MICROSOFT SQL SERVER)
+-- Migrated from MongoDB/Mongoose to SQL Server
 -- =========================================================================================
 
--- Create Database (Optional, depending on execution context)
 -- CREATE DATABASE SafeMotherInventory;
 -- GO
 -- USE SafeMotherInventory;
 -- GO
 
 -- =========================================================================================
--- TASK 1: RELATIONAL DATABASE DESIGN (3NF)
+-- CORE APPLICATION TABLES
+-- =========================================================================================
+
+-- 1. Users Table
+CREATE TABLE Users (
+    UserID INT IDENTITY(1,1) PRIMARY KEY,
+    FullName NVARCHAR(200) NOT NULL,
+    Email NVARCHAR(255) NOT NULL UNIQUE,
+    ContactNumber VARCHAR(15) NOT NULL,
+    Address NVARCHAR(500) NOT NULL,
+    DateOfBirth DATE NOT NULL,
+    Password NVARCHAR(255) NOT NULL,
+    Role VARCHAR(10) NOT NULL DEFAULT 'MOTHER'
+        CONSTRAINT CHK_Users_Role CHECK (Role IN ('MOTHER', 'MIDWIFE', 'DOCTOR', 'ADMIN')),
+    IsActive BIT NOT NULL DEFAULT 1,
+    IsDeleted BIT NOT NULL DEFAULT 0,
+    PasswordResetToken NVARCHAR(255) NULL,
+    PasswordResetExpires DATETIME NULL,
+    CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE()
+);
+GO
+
+-- 2. Pregnancies Table
+CREATE TABLE Pregnancies (
+    PregnancyID INT IDENTITY(1,1) PRIMARY KEY,
+    UserID INT NOT NULL,
+    LmpDate DATE NOT NULL,
+    CycleLength INT NOT NULL DEFAULT 28
+        CONSTRAINT CHK_Pregnancies_CycleLength CHECK (CycleLength >= 21 AND CycleLength <= 35),
+    IsFirstPregnancy BIT NOT NULL DEFAULT 0,
+    BloodGroup NVARCHAR(10) NULL,
+    MedicalConditions NVARCHAR(MAX) NULL,       -- Stored as JSON array string
+    Allergies NVARCHAR(MAX) NULL,                -- Stored as JSON array string
+    PreviousComplications NVARCHAR(MAX) NULL,    -- Stored as JSON array string
+    ComplicationNotes NVARCHAR(MAX) NULL,
+    -- System generated
+    EddDate DATE NULL,
+    GestationalAgeWeeks INT NULL,
+    GestationalAgeDays INT NULL,
+    Trimester VARCHAR(10) NULL
+        CONSTRAINT CHK_Pregnancies_Trimester CHECK (Trimester IN ('FIRST', 'SECOND', 'THIRD')),
+    PregnancyWeekNumber INT NULL,
+    PercentageComplete DECIMAL(5,2) NULL,
+    -- Management
+    Status VARCHAR(10) NOT NULL DEFAULT 'ACTIVE'
+        CONSTRAINT CHK_Pregnancies_Status CHECK (Status IN ('ACTIVE', 'COMPLETED', 'CANCELLED')),
+    DoctorID INT NULL,
+    MidwifeID INT NULL,
+    CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_Pregnancies_User FOREIGN KEY (UserID) REFERENCES Users(UserID),
+    CONSTRAINT FK_Pregnancies_Doctor FOREIGN KEY (DoctorID) REFERENCES Users(UserID),
+    CONSTRAINT FK_Pregnancies_Midwife FOREIGN KEY (MidwifeID) REFERENCES Users(UserID)
+);
+GO
+
+-- 3. Chats Table
+CREATE TABLE Chats (
+    ChatID INT IDENTITY(1,1) PRIMARY KEY,
+    PregnancyID INT NULL,
+    IsReadOnly BIT NOT NULL DEFAULT 0,
+    LastMessage NVARCHAR(MAX) NULL,
+    LastMessageAt DATETIME NULL,
+    CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_Chats_Pregnancy FOREIGN KEY (PregnancyID) REFERENCES Pregnancies(PregnancyID)
+);
+GO
+
+-- 4. Chat Participants (junction table for the 2-participant relationship)
+CREATE TABLE ChatParticipants (
+    ChatID INT NOT NULL,
+    UserID INT NOT NULL,
+    PRIMARY KEY (ChatID, UserID),
+    CONSTRAINT FK_ChatParticipants_Chat FOREIGN KEY (ChatID) REFERENCES Chats(ChatID),
+    CONSTRAINT FK_ChatParticipants_User FOREIGN KEY (UserID) REFERENCES Users(UserID)
+);
+GO
+
+-- 5. Messages Table
+CREATE TABLE Messages (
+    MessageID INT IDENTITY(1,1) PRIMARY KEY,
+    ChatID INT NOT NULL,
+    SenderID INT NOT NULL,
+    Text NVARCHAR(2000) NOT NULL,
+    IsRead BIT NOT NULL DEFAULT 0,
+    ReadAt DATETIME NULL,
+    IsDeleted BIT NOT NULL DEFAULT 0,
+    CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_Messages_Chat FOREIGN KEY (ChatID) REFERENCES Chats(ChatID),
+    CONSTRAINT FK_Messages_Sender FOREIGN KEY (SenderID) REFERENCES Users(UserID)
+);
+GO
+
+-- 6. Appointments Table
+CREATE TABLE Appointments (
+    AppointmentID INT IDENTITY(1,1) PRIMARY KEY,
+    PregnancyID INT NOT NULL,
+    MotherID INT NOT NULL,
+    MidwifeID INT NOT NULL,
+    AppointmentDate DATETIME NOT NULL,
+    PreferredDateTime DATETIME NOT NULL,
+    ConfirmedDateTime DATETIME NULL,
+    Status VARCHAR(25) NOT NULL DEFAULT 'PENDING'
+        CONSTRAINT CHK_Appointments_Status CHECK (Status IN ('PENDING', 'APPROVED', 'REJECTED', 'CONFIRMED', 'RESCHEDULE_REQUESTED', 'CANCELLED')),
+    RejectionReason NVARCHAR(500) NULL,
+    RescheduleReason NVARCHAR(500) NULL,
+    PulseRate DECIMAL(6,2) NULL,
+    Temperature DECIMAL(5,2) NULL,
+    BloodPressure VARCHAR(20) NULL,
+    SpecialMedicalConditions NVARCHAR(MAX) NULL,  -- Stored as JSON array string
+    AppointmentNotes NVARCHAR(MAX) NULL,
+    IsCompleted BIT NOT NULL DEFAULT 0,
+    CompletedAt DATETIME NULL,
+    CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_Appointments_Pregnancy FOREIGN KEY (PregnancyID) REFERENCES Pregnancies(PregnancyID),
+    CONSTRAINT FK_Appointments_Mother FOREIGN KEY (MotherID) REFERENCES Users(UserID),
+    CONSTRAINT FK_Appointments_Midwife FOREIGN KEY (MidwifeID) REFERENCES Users(UserID)
+);
+GO
+
+-- =========================================================================================
+-- INDEXES
+-- =========================================================================================
+CREATE INDEX IX_Messages_ChatId_CreatedAt ON Messages (ChatID, CreatedAt DESC);
+CREATE INDEX IX_Appointments_PregnancyMotherMidwife ON Appointments (PregnancyID, MotherID, MidwifeID);
+CREATE INDEX IX_Appointments_Status_Date ON Appointments (Status, AppointmentDate);
+CREATE INDEX IX_Appointments_Mother_CreatedAt ON Appointments (MotherID, CreatedAt DESC);
+CREATE INDEX IX_Appointments_Midwife_CreatedAt ON Appointments (MidwifeID, CreatedAt DESC);
+CREATE INDEX IX_Users_Email ON Users (Email);
+CREATE INDEX IX_Pregnancies_UserID ON Pregnancies (UserID);
+CREATE INDEX IX_Pregnancies_DoctorID ON Pregnancies (DoctorID);
+CREATE INDEX IX_Pregnancies_MidwifeID ON Pregnancies (MidwifeID);
+GO
+
+-- =========================================================================================
+-- INVENTORY MODULE TABLES (FROM ADBMS ASSIGNMENT)
 -- =========================================================================================
 
 -- 1. Categories Table
@@ -57,7 +195,7 @@ CREATE TABLE DispenseLogs (
 GO
 
 -- =========================================================================================
--- INSERT 10 MEANINGFUL SAMPLE RECORDS
+-- INVENTORY SAMPLE DATA
 -- =========================================================================================
 
 INSERT INTO Categories (CategoryName, Description) VALUES
@@ -105,21 +243,15 @@ INSERT INTO DispenseLogs (BatchID, PatientOrWardID, QuantityDispensed, DispenseD
 GO
 
 -- =========================================================================================
--- TASK 2: ADVANCED SQL OBJECTS
+-- INVENTORY TRIGGERS
 -- =========================================================================================
 
--- -----------------------------------------------------------------------------------------
--- TRIGGERS
--- -----------------------------------------------------------------------------------------
-
--- Trigger 1: trg_UpdateBatchStock
 CREATE TRIGGER trg_UpdateBatchStock
 ON DispenseLogs
 AFTER INSERT
 AS
 BEGIN
     SET NOCOUNT ON;
-
     UPDATE B
     SET B.CurrentStock = B.CurrentStock - I.QuantityDispensed
     FROM Batches B
@@ -127,17 +259,14 @@ BEGIN
 END;
 GO
 
--- Trigger 2: trg_PreventExpiredDispense
 CREATE TRIGGER trg_PreventExpiredDispense
 ON DispenseLogs
 INSTEAD OF INSERT
 AS
 BEGIN
     SET NOCOUNT ON;
-
     IF EXISTS (
-        SELECT 1
-        FROM inserted I
+        SELECT 1 FROM inserted I
         INNER JOIN Batches B ON I.BatchID = B.BatchID
         WHERE B.ExpiryDate < GETDATE()
     )
@@ -146,11 +275,8 @@ BEGIN
         ROLLBACK TRANSACTION;
         RETURN;
     END
-
-    -- If stock is not enough
     IF EXISTS (
-        SELECT 1
-        FROM inserted I
+        SELECT 1 FROM inserted I
         INNER JOIN Batches B ON I.BatchID = B.BatchID
         WHERE B.CurrentStock < I.QuantityDispensed
     )
@@ -159,63 +285,51 @@ BEGIN
         ROLLBACK TRANSACTION;
         RETURN;
     END
-
-    -- If valid, proceed with insertion
     INSERT INTO DispenseLogs (BatchID, PatientOrWardID, QuantityDispensed, DispenseDate)
     SELECT BatchID, PatientOrWardID, QuantityDispensed, ISNULL(DispenseDate, GETDATE())
     FROM inserted;
 END;
 GO
 
--- -----------------------------------------------------------------------------------------
--- USER-DEFINED FUNCTIONS (UDFs)
--- -----------------------------------------------------------------------------------------
+-- =========================================================================================
+-- INVENTORY UDFs
+-- =========================================================================================
 
--- UDF 1: fn_CalculateCategoryValue
 CREATE FUNCTION fn_CalculateCategoryValue (@CategoryID INT)
 RETURNS DECIMAL(18, 2)
 AS
 BEGIN
     DECLARE @TotalValue DECIMAL(18, 2);
-
     SELECT @TotalValue = SUM(B.CurrentStock * M.UnitPrice)
     FROM Batches B
     INNER JOIN Medicines M ON B.MedicineID = M.MedicineID
     WHERE M.CategoryID = @CategoryID AND B.CurrentStock > 0 AND B.ExpiryDate >= GETDATE();
-
     RETURN ISNULL(@TotalValue, 0);
 END;
 GO
 
--- UDF 2: fn_GetAverageDailyConsumption
 CREATE FUNCTION fn_GetAverageDailyConsumption (@MedicineID INT)
 RETURNS DECIMAL(10, 2)
 AS
 BEGIN
     DECLARE @AvgConsumption DECIMAL(10, 2);
-
     SELECT @AvgConsumption = CAST(ISNULL(SUM(DL.QuantityDispensed), 0) AS DECIMAL(10,2)) / 30.0
     FROM DispenseLogs DL
     INNER JOIN Batches B ON DL.BatchID = B.BatchID
     WHERE B.MedicineID = @MedicineID
       AND DL.DispenseDate >= DATEADD(day, -30, GETDATE());
-
     RETURN ISNULL(@AvgConsumption, 0);
 END;
 GO
 
--- -----------------------------------------------------------------------------------------
--- VIEWS
--- -----------------------------------------------------------------------------------------
+-- =========================================================================================
+-- INVENTORY VIEWS
+-- =========================================================================================
 
--- View 1: vw_CriticalStock
 CREATE VIEW vw_CriticalStock
 AS
 SELECT 
-    M.MedicineID,
-    M.MedicineName,
-    C.CategoryName,
-    M.MinSafetyThreshold,
+    M.MedicineID, M.MedicineName, C.CategoryName, M.MinSafetyThreshold,
     ISNULL(SUM(B.CurrentStock), 0) AS TotalActiveStock
 FROM Medicines M
 INNER JOIN Categories C ON M.CategoryID = C.CategoryID
@@ -224,49 +338,31 @@ GROUP BY M.MedicineID, M.MedicineName, C.CategoryName, M.MinSafetyThreshold
 HAVING ISNULL(SUM(B.CurrentStock), 0) < M.MinSafetyThreshold;
 GO
 
--- View 2: vw_ExpiringSoon
 CREATE VIEW vw_ExpiringSoon
 AS
 SELECT 
-    B.BatchID,
-    B.BatchNumber,
-    M.MedicineName,
-    B.CurrentStock,
-    B.ExpiryDate,
+    B.BatchID, B.BatchNumber, M.MedicineName, B.CurrentStock, B.ExpiryDate,
     DATEDIFF(day, GETDATE(), B.ExpiryDate) AS DaysToExpiry
 FROM Batches B
 INNER JOIN Medicines M ON B.MedicineID = M.MedicineID
-WHERE B.CurrentStock > 0 
-  AND B.ExpiryDate >= GETDATE() 
-  AND B.ExpiryDate <= DATEADD(day, 90, GETDATE());
+WHERE B.CurrentStock > 0 AND B.ExpiryDate >= GETDATE() AND B.ExpiryDate <= DATEADD(day, 90, GETDATE());
 GO
 
--- -----------------------------------------------------------------------------------------
--- STORED PROCEDURES
--- -----------------------------------------------------------------------------------------
+-- =========================================================================================
+-- INVENTORY STORED PROCEDURES
+-- =========================================================================================
 
--- SP 1: sp_ProcessIncomingShipment
 CREATE PROCEDURE sp_ProcessIncomingShipment
-    @MedicineID INT,
-    @BatchNumber VARCHAR(50),
-    @ManufacturingDate DATE,
-    @ExpiryDate DATE,
-    @Quantity INT
+    @MedicineID INT, @BatchNumber VARCHAR(50), @ManufacturingDate DATE,
+    @ExpiryDate DATE, @Quantity INT
 AS
 BEGIN
     SET NOCOUNT ON;
-    
     BEGIN TRY
         BEGIN TRANSACTION;
-
-        IF @Quantity <= 0
-        BEGIN
-            RAISERROR ('Quantity must be greater than zero.', 16, 1);
-        END
-
+        IF @Quantity <= 0 RAISERROR ('Quantity must be greater than zero.', 16, 1);
         INSERT INTO Batches (MedicineID, BatchNumber, ManufacturingDate, ExpiryDate, CurrentStock)
         VALUES (@MedicineID, @BatchNumber, @ManufacturingDate, @ExpiryDate, @Quantity);
-
         COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
@@ -276,21 +372,13 @@ BEGIN
 END;
 GO
 
--- SP 2: sp_GenerateMonthlyAudit
-CREATE PROCEDURE sp_GenerateMonthlyAudit
-    @Year INT,
-    @Month INT
+CREATE PROCEDURE sp_GenerateMonthlyAudit @Year INT, @Month INT
 AS
 BEGIN
     SET NOCOUNT ON;
-
     DECLARE @StartDate DATETIME = DATEFROMPARTS(@Year, @Month, 1);
     DECLARE @EndDate DATETIME = EOMONTH(@StartDate);
-
-    SELECT 
-        M.MedicineName,
-        C.CategoryName,
-        -- Approximate calculation for simplicity in audit (Current Stock + Dispensed in month)
+    SELECT M.MedicineName, C.CategoryName,
         SUM(B.CurrentStock) + ISNULL(Dispensed.TotalDispensed, 0) AS StartingStockApprox,
         ISNULL(Dispensed.TotalDispensed, 0) AS TotalDispensed,
         SUM(B.CurrentStock) AS EndingStock
@@ -299,8 +387,7 @@ BEGIN
     INNER JOIN Batches B ON M.MedicineID = B.MedicineID
     LEFT JOIN (
         SELECT B.MedicineID, SUM(DL.QuantityDispensed) AS TotalDispensed
-        FROM DispenseLogs DL
-        INNER JOIN Batches B ON DL.BatchID = B.BatchID
+        FROM DispenseLogs DL INNER JOIN Batches B ON DL.BatchID = B.BatchID
         WHERE DL.DispenseDate >= @StartDate AND DL.DispenseDate <= @EndDate
         GROUP BY B.MedicineID
     ) Dispensed ON M.MedicineID = Dispensed.MedicineID
@@ -308,51 +395,31 @@ BEGIN
 END;
 GO
 
--- =========================================================================================
--- TASK 3: BUSINESS INTELLIGENCE / DATA MINING OPERATION
--- =========================================================================================
-
--- BI SP: sp_DemandForecastingAndReorder
--- Uses Moving Averages based on the last 3 months of DispenseLogs to forecast next month's demand.
--- Merges this with CriticalStock view to output a Recommended Order List.
 CREATE PROCEDURE sp_DemandForecastingAndReorder
 AS
 BEGIN
     SET NOCOUNT ON;
-
     DECLARE @LastMonthStart DATETIME = DATEADD(month, -1, GETDATE());
     DECLARE @TwoMonthsAgoStart DATETIME = DATEADD(month, -2, GETDATE());
     DECLARE @ThreeMonthsAgoStart DATETIME = DATEADD(month, -3, GETDATE());
-
     WITH MonthlyDispense AS (
-        SELECT 
-            B.MedicineID,
+        SELECT B.MedicineID,
             SUM(CASE WHEN DL.DispenseDate >= @LastMonthStart THEN DL.QuantityDispensed ELSE 0 END) AS Month1,
             SUM(CASE WHEN DL.DispenseDate >= @TwoMonthsAgoStart AND DL.DispenseDate < @LastMonthStart THEN DL.QuantityDispensed ELSE 0 END) AS Month2,
             SUM(CASE WHEN DL.DispenseDate >= @ThreeMonthsAgoStart AND DL.DispenseDate < @TwoMonthsAgoStart THEN DL.QuantityDispensed ELSE 0 END) AS Month3
-        FROM DispenseLogs DL
-        INNER JOIN Batches B ON DL.BatchID = B.BatchID
+        FROM DispenseLogs DL INNER JOIN Batches B ON DL.BatchID = B.BatchID
         WHERE DL.DispenseDate >= @ThreeMonthsAgoStart
         GROUP BY B.MedicineID
     ),
     Forecast AS (
-        SELECT 
-            MedicineID,
-            (Month1 + Month2 + Month3) / 3 AS ForecastedDemand
+        SELECT MedicineID, (Month1 + Month2 + Month3) / 3 AS ForecastedDemand
         FROM MonthlyDispense
     )
-    SELECT 
-        M.MedicineID,
-        M.MedicineName,
-        ISNULL(CS.TotalActiveStock, 
-               (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE())
-        ) AS CurrentStock,
-        M.MinSafetyThreshold,
-        ISNULL(F.ForecastedDemand, 0) AS ForecastedDemand,
+    SELECT M.MedicineID, M.MedicineName,
+        ISNULL(CS.TotalActiveStock, (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE())) AS CurrentStock,
+        M.MinSafetyThreshold, ISNULL(F.ForecastedDemand, 0) AS ForecastedDemand,
         CASE 
             WHEN CS.MedicineID IS NOT NULL OR (ISNULL(F.ForecastedDemand, 0) > ISNULL(CS.TotalActiveStock, 0)) THEN 
-                -- If it's critical or forecasted demand is higher than stock, recommend order
-                -- Order amount = (Safety Threshold + Forecasted Demand) - Current Stock
                 ((M.MinSafetyThreshold + ISNULL(F.ForecastedDemand, 0)) - 
                 ISNULL(CS.TotalActiveStock, (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE())))
             ELSE 0
@@ -360,9 +427,7 @@ BEGIN
     FROM Medicines M
     LEFT JOIN Forecast F ON M.MedicineID = F.MedicineID
     LEFT JOIN vw_CriticalStock CS ON M.MedicineID = CS.MedicineID
-    WHERE 
-        CS.MedicineID IS NOT NULL 
-        OR 
-        ISNULL(F.ForecastedDemand, 0) > ISNULL(CS.TotalActiveStock, (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE()));
+    WHERE CS.MedicineID IS NOT NULL 
+        OR ISNULL(F.ForecastedDemand, 0) > ISNULL(CS.TotalActiveStock, (SELECT ISNULL(SUM(CurrentStock), 0) FROM Batches WHERE MedicineID = M.MedicineID AND ExpiryDate >= GETDATE()));
 END;
 GO

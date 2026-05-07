@@ -1,8 +1,8 @@
-import { connectMSSQL, sql } from '../config/sqlDatabase.js';
+import { getPool } from '../config/database.js';
 
 export const getSmartReorder = async (req, res) => {
     try {
-        const pool = await connectMSSQL();
+        const pool = getPool();
         
         // Execute the BI stored procedure for Demand Forecasting and Reorder
         const result = await pool.request()

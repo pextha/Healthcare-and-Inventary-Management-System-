@@ -1,7 +1,4 @@
-import { User } from "../models/User.js";
-import { Pregnancy } from "../models/Pregnancy.js";
-import { Appointment } from "../models/Appointment.js";
-import { Chat } from "../models/Chat.js";
+import { getPool, sql } from "../config/database.js";
 
 export class AnalyticsService {
   async getSystemStats() {
@@ -17,19 +14,15 @@ export class AnalyticsService {
   }
 
   async _getUserStats() {
-    const pipeline = [
-      { $match: { isDeleted: false } },
-      {
-        $group: {
-          _id: "$role",
-          total: { $sum: 1 },
-          active: { $sum: { $cond: ["$isActive", 1, 0] } },
-          inactive: { $sum: { $cond: ["$isActive", 0, 1] } },
-        },
-      },
-    ];
+    const pool = getPool();
 
-    const results = await User.aggregate(pipeline);
+    const roleResult = await pool.request().query(`
+      SELECT Role AS role, COUNT(*) AS total,
+             SUM(CASE WHEN IsActive = 1 THEN 1 ELSE 0 END) AS active,
+             SUM(CASE WHEN IsActive = 0 THEN 1 ELSE 0 END) AS inactive
+      FROM Users WHERE IsDeleted = 0
+      GROUP BY Role
+    `);
 
     const byRole = { MOTHER: 0, DOCTOR: 0, MIDWIFE: 0, ADMIN: 0 };
     const activeByRole = { MOTHER: 0, DOCTOR: 0, MIDWIFE: 0, ADMIN: 0 };
@@ -37,28 +30,25 @@ export class AnalyticsService {
     let totalInactive = 0;
     let total = 0;
 
-    for (const row of results) {
-      byRole[row._id] = row.total;
-      activeByRole[row._id] = row.active;
+    for (const row of roleResult.recordset) {
+      byRole[row.role] = row.total;
+      activeByRole[row.role] = row.active;
       totalActive += row.active;
       totalInactive += row.inactive;
       total += row.total;
     }
 
-    // Pending validation: inactive doctors + midwives
-    const pendingValidation = await User.countDocuments({
-      isDeleted: false,
-      isActive: false,
-      role: { $in: ["DOCTOR", "MIDWIFE"] },
-    });
+    const pendingResult = await pool.request().query(`
+      SELECT COUNT(*) AS cnt FROM Users
+      WHERE IsDeleted = 0 AND IsActive = 0 AND Role IN ('DOCTOR', 'MIDWIFE')
+    `);
+    const pendingValidation = pendingResult.recordset[0].cnt;
 
-    // New users registered in the last 30 days
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const newUsersLast30Days = await User.countDocuments({
-      isDeleted: false,
-      createdAt: { $gte: thirtyDaysAgo },
-    });
+    const newUsersResult = await pool.request().query(`
+      SELECT COUNT(*) AS cnt FROM Users
+      WHERE IsDeleted = 0 AND CreatedAt >= DATEADD(day, -30, GETDATE())
+    `);
+    const newUsersLast30Days = newUsersResult.recordset[0].cnt;
 
     return {
       total,
@@ -72,84 +62,67 @@ export class AnalyticsService {
   }
 
   async _getPregnancyStats() {
-    const pipeline = [
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 },
-        },
-      },
-    ];
+    const pool = getPool();
 
-    const statusResults = await Pregnancy.aggregate(pipeline);
+    const statusResult = await pool.request().query(`
+      SELECT Status AS status, COUNT(*) AS count
+      FROM Pregnancies GROUP BY Status
+    `);
     const byStatus = { ACTIVE: 0, COMPLETED: 0, CANCELLED: 0 };
-    for (const row of statusResults) {
-      if (byStatus[row._id] !== undefined) byStatus[row._id] = row.count;
+    for (const row of statusResult.recordset) {
+      if (byStatus[row.status] !== undefined) byStatus[row.status] = row.count;
     }
 
-    // Trimester breakdown (active pregnancies only)
-    const trimesterPipeline = [
-      { $match: { status: "ACTIVE", trimester: { $exists: true, $ne: null } } },
-      {
-        $group: {
-          _id: "$trimester",
-          count: { $sum: 1 },
-        },
-      },
-    ];
-
-    const trimesterResults = await Pregnancy.aggregate(trimesterPipeline);
+    const trimesterResult = await pool.request().query(`
+      SELECT Trimester AS trimester, COUNT(*) AS count
+      FROM Pregnancies
+      WHERE Status = 'ACTIVE' AND Trimester IS NOT NULL
+      GROUP BY Trimester
+    `);
     const byTrimester = { FIRST: 0, SECOND: 0, THIRD: 0 };
-    for (const row of trimesterResults) {
-      if (byTrimester[row._id] !== undefined) byTrimester[row._id] = row.count;
+    for (const row of trimesterResult.recordset) {
+      if (byTrimester[row.trimester] !== undefined) byTrimester[row.trimester] = row.count;
     }
 
-    // Pregnancies with no doctor assigned (covers missing field and explicit null)
-    const unassignedDoctor = await Pregnancy.countDocuments({
-      status: "ACTIVE",
-      $or: [{ doctor: { $exists: false } }, { doctor: null }],
-    });
+    const unassignedResult = await pool.request().query(`
+      SELECT COUNT(*) AS cnt FROM Pregnancies
+      WHERE Status = 'ACTIVE' AND DoctorID IS NULL
+    `);
+    const unassignedDoctor = unassignedResult.recordset[0].cnt;
 
-    const total =
-      (byStatus.ACTIVE ?? 0) +
-      (byStatus.COMPLETED ?? 0) +
-      (byStatus.CANCELLED ?? 0);
+    const total = (byStatus.ACTIVE ?? 0) + (byStatus.COMPLETED ?? 0) + (byStatus.CANCELLED ?? 0);
 
     return { total, byStatus, byTrimester, unassignedDoctor };
   }
 
   async _getAppointmentStats() {
-    const pipeline = [
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 },
-        },
-      },
-    ];
+    const pool = getPool();
 
-    const statusResults = await Appointment.aggregate(pipeline);
+    const statusResult = await pool.request().query(`
+      SELECT Status AS status, COUNT(*) AS count
+      FROM Appointments GROUP BY Status
+    `);
     const byStatus = {
-      PENDING: 0,
-      APPROVED: 0,
-      REJECTED: 0,
-      CONFIRMED: 0,
-      RESCHEDULE_REQUESTED: 0,
-      CANCELLED: 0,
+      PENDING: 0, APPROVED: 0, REJECTED: 0,
+      CONFIRMED: 0, RESCHEDULE_REQUESTED: 0, CANCELLED: 0,
     };
-
-    for (const row of statusResults) {
-      if (byStatus[row._id] !== undefined) byStatus[row._id] = row.count;
+    for (const row of statusResult.recordset) {
+      if (byStatus[row.status] !== undefined) byStatus[row.status] = row.count;
     }
 
     const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
-    const completed = await Appointment.countDocuments({ isCompleted: true });
+
+    const completedResult = await pool.request().query(`
+      SELECT COUNT(*) AS cnt FROM Appointments WHERE IsCompleted = 1
+    `);
+    const completed = completedResult.recordset[0].cnt;
 
     return { total, byStatus, completed };
   }
 
   async _getChatStats() {
-    const totalChats = await Chat.countDocuments();
-    return { totalChats };
+    const pool = getPool();
+    const result = await pool.request().query(`SELECT COUNT(*) AS cnt FROM Chats`);
+    return { totalChats: result.recordset[0].cnt };
   }
 }

@@ -16,7 +16,7 @@ export class MessageService {
     }
 
     const isParticipant = chat.participants.some(
-      (p) => p._id.toString() === senderId,
+      (p) => p._id === senderId,
     );
 
     if (!isParticipant) {
@@ -64,7 +64,7 @@ export class MessageService {
     }
 
     const isParticipant = chat.participants.some(
-      (p) => p._id.toString() === requesterId,
+      (p) => p._id === requesterId,
     );
 
     if (!isParticipant) {
@@ -88,7 +88,7 @@ export class MessageService {
       throw error;
     }
 
-    if (message.senderId._id.toString() === requesterId) {
+    if (message.senderId._id === requesterId) {
       const error = new Error("You cannot mark your own message as read");
       error.statusCode = 400;
       throw error;
@@ -117,7 +117,7 @@ export class MessageService {
       throw error;
     }
 
-    if (message.senderId._id.toString() !== requesterId) {
+    if (message.senderId._id !== requesterId) {
       const error = new Error("You can only delete your own messages");
       error.statusCode = 403;
       throw error;
@@ -126,11 +126,11 @@ export class MessageService {
     const deleted = await messageRepository.softDelete(messageId);
 
     // if this was the lastMessage, roll back the chat snapshot to the previous message
-    const chat = await chatRepository.findById(message.chatId.toString());
+    const chat = await chatRepository.findById(message.chatId);
     if (chat && chat.lastMessage === message.text) {
-      const previous = await messageRepository.findLatestInChat(message.chatId.toString());
+      const previous = await messageRepository.findLatestInChat(message.chatId);
       await chatRepository.updateLastMessage(
-        message.chatId.toString(),
+        message.chatId,
         previous ? previous.text : null,
         previous ? previous.createdAt : null,
       );

@@ -80,7 +80,7 @@ export class ChatService {
     }
 
     const isParticipant = chat.participants.some(
-      (p) => p._id.toString() === requesterId,
+      (p) => p._id === requesterId,
     );
 
     if (!isParticipant) {

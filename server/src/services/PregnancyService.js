@@ -56,7 +56,7 @@ export class PregnancyService {
     }
 
     await this.repo.update(pregnancy._id, { status: "COMPLETED" });
-    return { ...pregnancy.toObject(), status: "COMPLETED" };
+    return { ...pregnancy, status: "COMPLETED" };
   }
 
   async markManyAsCompletedIfDuePassed(pregnancies) {
@@ -167,11 +167,11 @@ export class PregnancyService {
     }
 
     // Only the mother (owner), assigned doctor, or assigned midwife can view
-    const ownerId = pregnancy.user._id?.toString() || pregnancy.user.toString();
+    const ownerId = pregnancy.user._id?.toString?.() || String(pregnancy.user._id || pregnancy.user);
     const doctorId =
-      pregnancy.doctor?._id?.toString() || pregnancy.doctor?.toString();
+      pregnancy.doctor?._id?.toString?.() || String(pregnancy.doctor || '');
     const midwifeId =
-      pregnancy.midwife?._id?.toString() || pregnancy.midwife?.toString();
+      pregnancy.midwife?._id?.toString?.() || String(pregnancy.midwife || '');
 
     if (
       user.userId !== ownerId &&
@@ -198,8 +198,8 @@ export class PregnancyService {
     }
 
     //Checking if it's the mother who owns the pregnancy
-    const ownerId = pregnancy.user.toString();
-    if (user.userId !== ownerId) {
+    const ownerId = String(pregnancy.user);
+    if (String(user.userId) !== ownerId) {
       const err = new Error(
         "Only the mother can assign a doctor to her pregnancy",
       );
@@ -228,14 +228,14 @@ export class PregnancyService {
     }
 
     // Prevent reassigning the same doctor
-    if (pregnancy.doctor && pregnancy.doctor.toString() === doctorId) {
+    if (pregnancy.doctor && String(pregnancy.doctor) === String(doctorId)) {
       const err = new Error("This doctor is already assigned to the pregnancy");
       err.statusCode = 400;
       throw err;
     }
 
     // Capture the currently-assigned doctor BEFORE overwriting (may be null on first assign)
-    const oldDoctorId = pregnancy.doctor?.toString() ?? null;
+    const oldDoctorId = pregnancy.doctor ? String(pregnancy.doctor) : null;
 
     await this.repo.assignDoctor(pregnancyId, doctorId);
 
@@ -244,7 +244,7 @@ export class PregnancyService {
       try {
         await this.chatService.deactivateChatBetween(
           pregnancyId,
-          pregnancy.user.toString(),
+          String(pregnancy.user),
           oldDoctorId,
         );
       } catch (chatErr) {
@@ -259,7 +259,7 @@ export class PregnancyService {
     try {
       await this.chatService.createPregnancyChat(
         pregnancyId,
-        pregnancy.user.toString(),
+        String(pregnancy.user),
         doctorId,
       );
     } catch (chatErr) {
@@ -290,7 +290,7 @@ export class PregnancyService {
     }
 
     //Testing if it's a doctor and if he is the assigned doctor
-    if (pregnancy.doctor.toString() !== user.userId) {
+    if (String(pregnancy.doctor) !== String(user.userId)) {
       const err = new Error("Only the assigned doctor can assign a midwife");
       err.statusCode = 403;
       throw err;
@@ -319,7 +319,7 @@ export class PregnancyService {
     }
 
     // Prevent reassigning the same midwife
-    if (pregnancy.midwife && pregnancy.midwife.toString() === midwifeId) {
+    if (pregnancy.midwife && String(pregnancy.midwife) === String(midwifeId)) {
       const err = new Error(
         "This midwife is already assigned to the pregnancy",
       );
@@ -328,7 +328,7 @@ export class PregnancyService {
     }
 
     // Capture the currently-assigned midwife BEFORE overwriting (may be null on first assign)
-    const oldMidwifeId = pregnancy.midwife?.toString() ?? null;
+    const oldMidwifeId = pregnancy.midwife ? String(pregnancy.midwife) : null;
 
     await this.repo.assignMidwife(pregnancyId, midwifeId);
 
@@ -337,7 +337,7 @@ export class PregnancyService {
       try {
         await this.chatService.deactivateChatBetween(
           pregnancyId,
-          pregnancy.user.toString(),
+          String(pregnancy.user),
           oldMidwifeId,
         );
       } catch (chatErr) {
@@ -352,7 +352,7 @@ export class PregnancyService {
     try {
       await this.chatService.createPregnancyChat(
         pregnancyId,
-        pregnancy.user.toString(),
+        String(pregnancy.user),
         midwifeId,
       );
     } catch (chatErr) {
@@ -375,8 +375,8 @@ export class PregnancyService {
     }
 
     //Only a mother can cancel her own pregnancy
-    const ownerId = pregnancy.user.toString();
-    if (user.role !== "MOTHER" || user.userId !== ownerId) {
+    const ownerId = String(pregnancy.user);
+    if (user.role !== "MOTHER" || String(user.userId) !== ownerId) {
       const err = new Error("Only the mother can cancel her pregnancy");
       err.statusCode = 403;
       throw err;
@@ -414,8 +414,8 @@ export class PregnancyService {
     }
 
     //Only a mother has access
-    const ownerId = pregnancy.user.toString();
-    if (user.role !== "MOTHER" || user.userId !== ownerId) {
+    const ownerId = String(pregnancy.user);
+    if (user.role !== "MOTHER" || String(user.userId) !== ownerId) {
       const err = new Error("Only the mother can update her pregnancy");
       err.statusCode = 403;
       throw err;

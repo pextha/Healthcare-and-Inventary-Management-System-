@@ -48,7 +48,7 @@ export class AppointmentService {
     }
 
     // Verify pregnancy belongs to the mother
-    if (pregnancy.user.toString() !== user.userId) {
+    if (pregnancy.user !== user.userId) {
       const err = new Error("This pregnancy does not belong to you");
       err.statusCode = 403;
       throw err;
@@ -136,10 +136,10 @@ export class AppointmentService {
 
     // Access control: mother, or assigned midwife, or doctor
     const hasAccess =
-      appointment.mother._id.toString() === user.userId ||
-      appointment.midwife._id.toString() === user.userId ||
+      appointment.mother._id === user.userId ||
+      appointment.midwife._id === user.userId ||
       (appointment.pregnancy.doctor &&
-        appointment.pregnancy.doctor.toString() === user.userId);
+        appointment.pregnancy.doctor === user.userId);
 
     if (!hasAccess) {
       const err = new Error("Access denied to this appointment");
@@ -203,7 +203,7 @@ export class AppointmentService {
     }
 
     // Verify appointment belongs to this midwife
-    if (appointment.midwife.toString() !== user.userId) {
+    if (appointment.midwife !== user.userId) {
       const err = new Error("This appointment is not assigned to you");
       err.statusCode = 403;
       throw err;
@@ -281,7 +281,7 @@ export class AppointmentService {
       throw err;
     }
 
-    if (appointment.mother.toString() !== user.userId) {
+    if (appointment.mother !== user.userId) {
       const err = new Error("This appointment does not belong to you");
       err.statusCode = 403;
       throw err;
@@ -346,7 +346,7 @@ export class AppointmentService {
     }
 
     // Verify appointment is assigned to this midwife
-    if (appointment.midwife.toString() !== user.userId) {
+    if (appointment.midwife !== user.userId) {
       const err = new Error("This appointment is not assigned to you");
       err.statusCode = 403;
       throw err;
@@ -428,8 +428,8 @@ export class AppointmentService {
 
     // Access control: mother or assigned midwife
     const hasAccess =
-      pregnancy.user.toString() === user.userId ||
-      (pregnancy.midwife && pregnancy.midwife.toString() === user.userId);
+      pregnancy.user === user.userId ||
+      (pregnancy.midwife && pregnancy.midwife === user.userId);
 
     if (!hasAccess) {
       const err = new Error("Access denied to this pregnancy");
@@ -453,7 +453,7 @@ export class AppointmentService {
 
     // Access control
     if (user.role === "MOTHER") {
-      if (appointment.mother.toString() !== user.userId) {
+      if (appointment.mother !== user.userId) {
         const err = new Error("This appointment does not belong to you");
         err.statusCode = 403;
         throw err;
@@ -465,7 +465,7 @@ export class AppointmentService {
         throw err;
       }
     } else if (user.role === "MIDWIFE") {
-      if (appointment.midwife.toString() !== user.userId) {
+      if (appointment.midwife !== user.userId) {
         const err = new Error("This appointment is not assigned to you");
         err.statusCode = 403;
         throw err;
@@ -508,7 +508,7 @@ export class AppointmentService {
       throw err;
     }
 
-    if (appointment.mother.toString() !== user.userId) {
+    if (appointment.mother !== user.userId) {
       const err = new Error("This appointment does not belong to you");
       err.statusCode = 403;
       throw err;

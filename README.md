@@ -1,8 +1,12 @@
 # SafeMother
 
+> [!IMPORTANT]
+> **Database Migration:** The entire project has been migrated from MongoDB to **Microsoft SQL Server**. 
+> Please refer to the [ADBMS_Assignment_Guide.txt](./ADBMS_Assignment_Guide.txt) for detailed setup instructions and all changes made.
+
 SafeMother is a prenatal care management web application built for the SE3040 module. It provides role-based access for mothers, doctors, midwives, and admins to manage pregnancy records, appointments, chats, and health tips.
 
-**Tech Stack:** Node.js, Express 5, MongoDB (Mongoose 9)
+**Tech Stack:** Node.js, Express 5, **Microsoft SQL Server**
 
 ---
 
@@ -11,7 +15,7 @@ SafeMother is a prenatal care management web application built for the SE3040 mo
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18 or higher)
-- A MongoDB Atlas cluster or a local MongoDB instance
+- [Microsoft SQL Server](https://www.microsoft.com/en-us/sql-server/) (the sole database for the entire project)
 - A [Resend](https://resend.com/) account (for password reset emails)
 - A [Google Gemini](https://ai.google.dev/) API key (for AI-powered appointment quick checks)
 
@@ -28,7 +32,6 @@ Create a `.env` file inside the `server/` directory:
 
 ```env
 PORT=3000
-MONGODB_URI=your_mongodb_connection_string
 JWT_SECRET=your-secret-key-change-in-production
 JWT_EXPIRY=24h
 RESEND_API_KEY=your-resend-api-key
@@ -39,12 +42,17 @@ GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=gemini-1.5-flash
 GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/models
 CLIENT_URL=http://localhost:5173
+
+# Microsoft SQL Server Configuration
+DB_SERVER=localhost
+DB_USER=sa
+DB_PASSWORD=YourStrongPassword123!
+DB_NAME=SafeMotherInventory
 ```
 
 | Variable                 | Description                                    |
 | ------------------------ | ---------------------------------------------- |
 | `PORT`                   | Port the server runs on (default `3000`)       |
-| `MONGODB_URI`            | MongoDB connection string                      |
 | `JWT_SECRET`             | Secret key used to sign JWT tokens             |
 | `JWT_EXPIRY`             | Token expiry duration (e.g. `24h`)             |
 | `RESEND_API_KEY`         | API key from Resend for sending emails         |
@@ -55,6 +63,10 @@ CLIENT_URL=http://localhost:5173
 | `GEMINI_MODEL`           | Gemini model name (default `gemini-1.5-flash`) |
 | `GEMINI_BASE_URL`        | Gemini API base URL (has a default)            |
 | `CLIENT_URL`             | Frontend origin URL used for CORS  |
+| `DB_SERVER`              | MS SQL Server address (e.g., `localhost`) |
+| `DB_USER`                | MS SQL Server username (e.g., `sa`) |
+| `DB_PASSWORD`            | MS SQL Server password |
+| `DB_NAME`                | MS SQL Server database name (`SafeMotherInventory`) |
 
 ### 3. Install Dependencies & Run
 
@@ -67,9 +79,24 @@ npm run dev
 The server starts at `http://localhost:3000`. You should see:
 
 ```
-MongoDB connected successfully
+MSSQL connected successfully
 Server is running on port 3000
 ```
+
+---
+
+## Inventory Management Module (ADBMS Assignment)
+
+This module is built using **Microsoft SQL Server** to satisfy advanced relational database requirements.
+
+### Key Features:
+- **3NF Relational Design**: Tables for Categories, Medicines, Batches, and Dispense Logs.
+- **Business Intelligence**: Smart demand forecasting using moving averages.
+- **Advanced SQL Objects**: Includes Triggers for stock automation, UDFs for financial calculations, and complex Views for critical stock monitoring.
+- **Smart Reorder Dashboard**: A dedicated React interface at `/admin/inventory` for real-time stock forecasting.
+
+For detailed setup, database schema execution, and internal logic, please refer to the [ADBMS Assignment Guide](./ADBMS_Assignment_Guide.txt).
+
 
 ### 4. Verify
 

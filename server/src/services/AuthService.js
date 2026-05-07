@@ -186,7 +186,7 @@ export class AuthService {
   // Generate JWT token
   generateToken(user) {
     const payload = {
-      userId: user._id.toString(),
+      userId: String(user._id),
       email: user.email,
       role: user.role,
       fullName: user.fullName,
@@ -281,7 +281,7 @@ export class AuthService {
 
   // Remove password from user object
   sanitizeUser(user) {
-    const userObj = user.toObject ? user.toObject() : user;
+    const userObj = typeof user.toObject === 'function' ? user.toObject() : { ...user };
     delete userObj.password;
     return userObj;
   }
